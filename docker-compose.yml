@@ -1,0 +1,105 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ai
+      POSTGRES_PASSWORD: ai_password
+      POSTGRES_DB: ai_data
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai -d ai_data"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      DB_URL: postgresql+psycopg://ai:ai_password@db:5432/ai_data
+      JWT_SECRET: change_me
+      GM_USERNAME: gm
+      GM_PASSWORD: gm_password
+      SMTP_HOST: smtp.example.com
+      SMTP_PORT: "587"
+      SMTP_USER: you@example.com
+      SMTP_PASS: your_password
+      SMTP_FROM: you@example.com
+      ALERT_EMAIL_TO: you@example.com
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_BACKEND_URL: redis://redis:6379/1
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: ["celery", "-A", "app.tasks:celery_app", "worker", "--loglevel=INFO"]
+    environment:
+      DB_URL: postgresql+psycopg://ai:ai_password@db:5432/ai_data
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_BACKEND_URL: redis://redis:6379/1
+      SMTP_HOST: smtp.example.com
+      SMTP_PORT: "587"
+      SMTP_USER: you@example.com
+      SMTP_PASS: your_password
+      SMTP_FROM: you@example.com
+      ALERT_EMAIL_TO: you@example.com
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  backup:
+    build: .
+    environment:
+      PGPASSWORD: ai_password
+      SMTP_HOST: smtp.example.com
+      SMTP_PORT: "587"
+      SMTP_USER: you@example.com
+      SMTP_PASS: your_password
+      SMTP_FROM: you@example.com
+      ALERT_EMAIL_TO: you@example.com
+    volumes:
+      - ./backup:/backup
+      - backups:/backups
+    entrypoint: ["/bin/sh","-c"]
+    command: >
+      "chmod +x /backup/backup.sh &&
+       while true; do
+         /backup/backup.sh;
+         sleep 3600;
+       done"
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  db_data:
+  backups:

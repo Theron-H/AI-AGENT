@@ -1,0 +1,5 @@
+ruff==0.6.4
+mypy==1.11.2
+bandit==1.7.9
+pre-commit==3.8.0
+pip-audit==2.7.3
